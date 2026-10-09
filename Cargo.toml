@@ -1,0 +1,28 @@
+[package]
+name = "backup-diff-h"
+version = "0.3.0"
+edition = "2021"
+license = "MIT"
+authors = ["HexBrowns"]
+description = "BackupDiff_H - compare AviUtl2 auto backups"
+publish = false
+
+[lib]
+name = "backup_diff_h"
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = "1.0"
+aviutl2 = { version = "0.48", features = ["generic"] }
+aviutl2-eframe = "0.48"
+parking_lot = "0.12"
+tracing = "0.1"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Time",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_WindowsAndMessaging",
+] }
