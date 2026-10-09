@@ -293,11 +293,12 @@ fn diff_entries(a: &Entries, b: &Entries, ignore: impl Fn(&str) -> bool) -> Vec<
 fn diff_effect_items(a: &Effect, b: &Effect, opt: Options) -> Vec<ItemChange> {
     let ignore = |k: &str| !opt.show_ignored && ignored_effect_key(k);
     let mut items = diff_entries(&a.entries, &b.entries, ignore);
-    // effect.disable が無いのは有効（=0）と同じ
-    items.retain(|c| {
-        !(c.key == "effect.disable"
-            && c.old.as_deref().unwrap_or("0") == c.new.as_deref().unwrap_or("0"))
-    });
+    // effect.disable が無いのは有効（=0）と同じ。無い側を 0 で埋め、追加・削除ではなく変更として出す
+    for c in items.iter_mut().filter(|c| c.key == "effect.disable") {
+        c.old.get_or_insert_with(|| "0".into());
+        c.new.get_or_insert_with(|| "0".into());
+    }
+    items.retain(|c| !(c.key == "effect.disable" && c.old == c.new));
     items
 }
 
@@ -701,7 +702,11 @@ mod tests {
         let r = run(&base(), &b);
         let o = only_object(&r);
         assert_eq!(o.effects.len(), 1);
-        assert_eq!(o.effects[0].items, [ItemChange { key: "effect.disable".into(), old: None, new: Some("1".into()) }]);
+        assert_eq!(o.effects[0].items, [ItemChange { key: "effect.disable".into(), old: Some("0".into()), new: Some("1".into()) }]);
+        assert_eq!(o.effects[0].items[0].mark(), Mark::Changed, "行が増えても、有効・無効の切り替えは変更（~）");
+        // 戻すときも同じ: 無効 → 有効（行が消える）も変更
+        let back = run(&b, &base());
+        assert_eq!(only_object(&back).effects[0].items[0].mark(), Mark::Changed);
         // 明示的な 0 と、行が無いのは同じ
         let mut c = base();
         c[2].effects[1].1.insert(0, ("effect.disable", "0"));

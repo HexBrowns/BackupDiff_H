@@ -3,7 +3,7 @@
 AviUtl2 の自動バックアップ（`Backup/AutoBackup_*.aup2`）を 2 つ選び、オブジェクトを対応付けてから
 効果・設定値の違いを一覧にする汎用プラグイン（Rust 製 `.aux2`）。元ネタは WinMerge。
 
-- **バージョン:** 0.3.0（aviutl2-rs / aviutl2-eframe **0.48**。本体 **2.1.11** 以上）
+- **バージョン:** 0.3.1（aviutl2-rs / aviutl2-eframe **0.48**。本体 **2.1.11** 以上）
 - **仕様:** [`AI/specifications/20261005_BackupDiff_H_spec.md`](../../specifications/20261005_BackupDiff_H_spec.md)（第 3 段階まで）
 
 ## ビルド
