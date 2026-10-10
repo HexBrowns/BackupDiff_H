@@ -453,7 +453,7 @@ impl BackupDiffApp {
 
         ui.horizontal(|ui| {
             ui.label("絞り込み:");
-            ui.add(egui::TextEdit::singleline(&mut self.filter).desired_width(160.0).hint_text("効果名・項目名・値"));
+            search_text(ui, "diff_filter", &mut self.filter, "効果名・項目名・値");
             if ui
                 .checkbox(&mut self.show_ignored, "無視する行も出す")
                 .on_hover_text("選択状態（focus）・グループの開閉・カーソル位置・表示位置・[plugin.N] も比べます")
@@ -637,7 +637,7 @@ impl BackupDiffApp {
         });
         ui.horizontal(|ui| {
             ui.label("絞り込み:");
-            ui.add(egui::TextEdit::singleline(&mut self.inv.filter).desired_width(160.0).hint_text("効果名・種類・プロジェクト"));
+            search_text(ui, "inventory_filter", &mut self.inv.filter, "効果名・種類・プロジェクト");
             ui.checkbox(&mut self.inv.unused_only, "使っていないものだけ");
         });
     }
@@ -924,6 +924,31 @@ fn on_off(v: Option<&str>) -> &'static str {
     }
 }
 
+/// 絞り込みの欄（ルール au2-rs-plugin「入力の確定と取り消し」）。
+/// 打つたびに `text` を書き換えて絞り込む（描画のたびに行う軽い処理）。入力中の Esc で、入力を始める前の文字に戻す
+fn search_text(ui: &mut egui::Ui, id_salt: &str, text: &mut String, hint: &str) -> egui::Response {
+    let resp = ui.add(egui::TextEdit::singleline(text).id_salt(id_salt).desired_width(160.0).hint_text(hint));
+    revert_on_escape(ui, &resp, text);
+    resp
+}
+
+/// 1 行の入力欄の後に呼ぶ。フォーカスを得たときの文字を覚えておき、入力中の Esc でフォーカスが外れたらそこへ戻す
+/// （参照実装 MidpointTable_H の `number_text`）
+fn revert_on_escape(ui: &egui::Ui, resp: &egui::Response, text: &mut String) {
+    let key = resp.id.with("before_edit");
+    if resp.gained_focus() {
+        ui.data_mut(|d| d.insert_temp(key, text.clone()));
+    }
+    if resp.lost_focus() {
+        let before = ui.data_mut(|d| d.remove_temp::<String>(key));
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            if let Some(b) = before {
+                *text = b;
+            }
+        }
+    }
+}
+
 fn item_matches(item: &ItemChange, needle: &str) -> bool {
     needle.is_empty()
         || item.key.contains(needle)
@@ -999,5 +1024,65 @@ impl eframe::App for BackupDiffApp {
             self.run_actions(actions, &ctx);
             ctx.request_repaint();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// テストの 1 フレームの出力を捨てる。テクスチャの差分を片付けずに捨てると、デバッグビルドで epaint の debug_assert
+    /// （Dropped TexturesDelta with N unapplied deltas）が落ちる（au2 release の prebuild の cargo test はデバッグビルド）
+    fn discard_frame(mut out: egui::FullOutput) {
+        out.textures_delta.clear();
+    }
+
+    use super::*;
+
+    fn key(k: egui::Key) -> egui::Event {
+        egui::Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }
+    }
+
+    /// 画面なしで 1 フレーム描く。`focus` なら欄を描く前にフォーカスを渡す（クリックの代わり）
+    fn frame(ctx: &egui::Context, text: &mut String, events: Vec<egui::Event>, focus: Option<egui::Id>) -> egui::Id {
+        let mut id = egui::Id::NULL;
+        let input = egui::RawInput { events, ..Default::default() };
+        discard_frame(ctx.run_ui(input, |ui| {
+            if let Some(f) = focus {
+                ui.memory_mut(|m| m.request_focus(f));
+            }
+            id = search_text(ui, "filter", text, "").id;
+        }));
+        id
+    }
+
+    /// 打っている間は絞り込みに使う（打つたびに書き換わる）。Esc で入力前の文字に戻る
+    #[test]
+    fn search_text_filters_while_typing_and_reverts_on_escape() {
+        let ctx = egui::Context::default();
+        let mut text = String::from("abc");
+        let id = frame(&ctx, &mut text, vec![], None);
+        frame(&ctx, &mut text, vec![], Some(id));
+        frame(&ctx, &mut text, vec![egui::Event::Text("xy".into())], None);
+        assert_eq!(text, "abcxy");
+        frame(&ctx, &mut text, vec![key(egui::Key::Escape)], None);
+        assert_eq!(text, "abc");
+        assert!(!ctx.memory(|m| m.has_focus(id)));
+    }
+
+    /// Enter で確定したものは残る。次の入力の Esc は、その確定した文字へ戻す
+    #[test]
+    fn search_text_keeps_on_enter() {
+        let ctx = egui::Context::default();
+        let mut text = String::new();
+        let id = frame(&ctx, &mut text, vec![], None);
+        frame(&ctx, &mut text, vec![], Some(id));
+        frame(&ctx, &mut text, vec![egui::Event::Text("ぼかし".into())], None);
+        frame(&ctx, &mut text, vec![key(egui::Key::Enter)], None);
+        assert_eq!(text, "ぼかし");
+        assert!(!ctx.memory(|m| m.has_focus(id)));
+        frame(&ctx, &mut text, vec![], Some(id));
+        frame(&ctx, &mut text, vec![egui::Event::Text("x".into())], None);
+        assert_eq!(text, "ぼかしx");
+        frame(&ctx, &mut text, vec![key(egui::Key::Escape)], None);
+        assert_eq!(text, "ぼかし");
     }
 }
