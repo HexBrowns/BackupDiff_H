@@ -7,7 +7,7 @@
 [project]
 id = "HexBrowns.BackupDiff_H"
 name = "BackupDiff_H"
-version = "0.3.1"
+version = "0.3.2"
 
 [artifacts."BackupDiff_H.aux2"]
 build = "cargo build --release"

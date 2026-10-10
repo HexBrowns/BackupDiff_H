@@ -356,7 +356,8 @@ impl BackupDiffApp {
                         Restore::Item { key, .. } => format!("{effect_name}（{} 番目）/ {key}", pos + 1),
                         Restore::Enable { .. } => format!("{effect_name}（{} 番目）/ 有効・無効", pos + 1),
                     };
-                    match live::restore(handle, pos, effect_name, what) {
+                    let scene_id = self.comparison.as_ref().and_then(|c| c.only_scene);
+                    match live::restore(handle, scene_id, pos, effect_name, what) {
                         Ok(msg) => {
                             tracing::info!("戻す: {place} を戻した");
                             // 戻した結果を出し直す（読み取りだけ）

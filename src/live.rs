@@ -74,13 +74,45 @@ pub enum Restore {
     Enable { expected: bool, value: bool },
 }
 
-/// 「戻す」ボタン専用。`pos` はオブジェクトの中の効果の位置（0 始まり）
-pub fn restore(handle: ObjectHandle, pos: usize, effect_name: String, what: Restore) -> Result<String, String> {
+/// トラックバーの値の、移動方法の前に並ぶ数値の数と、設定の先頭（ビット）。移動の無い値（数値 1 つ）や
+/// トラックバーでない値は None
+fn track_shape(value: &str) -> Option<(usize, &str, u32)> {
+    let fields: Vec<&str> = value.split(',').map(str::trim).collect();
+    let n = fields.iter().take_while(|f| f.parse::<f64>().is_ok()).count();
+    if n == 0 || n == fields.len() {
+        return None;
+    }
+    let bits = fields.get(n + 1).and_then(|s| s.split('|').next()).and_then(|b| b.parse::<u32>().ok()).unwrap_or(0);
+    Some((n, fields[n], bits))
+}
+
+/// 戻す値の数値の数が、今のオブジェクトの点（開始・中間点・終了）の数と合うか。
+/// 本体は数を検査せずに保存し、合わないと動きが変わる（ルール `au2-rs-plugin`「設定項目の値の形式」）。
+/// 中間点無視（設定のビット 4）と再生範囲は値 2 つで保存されるので、2 つなら合うとみなす
+pub fn values_fit_points(value: &str, points: usize) -> bool {
+    match track_shape(value) {
+        None => true,
+        Some((n, motion, bits)) => n == points || (n == 2 && (bits & 4 != 0 || motion == "再生範囲")),
+    }
+}
+
+/// 「戻す」ボタン専用。`pos` はオブジェクトの中の効果の位置（0 始まり）。
+/// `scene_id` は比較したときのシーン（比べた後にシーンを切り替えていたら書かない）
+pub fn restore(
+    handle: ObjectHandle,
+    scene_id: Option<i32>,
+    pos: usize,
+    effect_name: String,
+    what: Restore,
+) -> Result<String, String> {
     if !EDIT_HANDLE.is_ready() {
         return Err("編集 API の準備ができていません".into());
     }
     EDIT_HANDLE
         .call_edit_section(move |edit| -> Result<String, String> {
+            if scene_id.is_some_and(|id| id != edit.info.scene_id) {
+                return Err("比べたときとシーンが違います。比べたシーンに戻すか、もう一度比較してください".into());
+            }
             let object = edit.object(handle);
             if !object.exists() {
                 return Err("オブジェクトが見つかりません。もう一度比較してください".into());
@@ -99,6 +131,13 @@ pub fn restore(handle: ObjectHandle, pos: usize, effect_name: String, what: Rest
                     let current = effect.get_item_value(&key).map_err(|e| format!("{key} を読めませんでした: {e:?}"))?;
                     if current != expected {
                         return Err(format!("{key} の今の値（{current}）が比べたときと違うので、戻しませんでした。もう一度比較してください"));
+                    }
+                    let points = edit.get_object_section_num(handle).map_err(|e| format!("中間点の数を読めませんでした: {e:?}"))? + 1;
+                    if !values_fit_points(&value, points) {
+                        return Err(format!(
+                            "{key} は中間点の数が違うので戻せません（戻す値の点 {} 個 / 今のオブジェクト {points} 個）。中間点をそろえてから戻してください",
+                            track_shape(&value).map_or(1, |s| s.0)
+                        ));
                     }
                     effect.set_item_value(&key, &value).map_err(|e| {
                         tracing::warn!(effect = %effect_name, item = %key, error = ?e, "restore: set failed");
@@ -126,4 +165,25 @@ pub fn restore(handle: ObjectHandle, pos: usize, effect_name: String, what: Rest
             }
         })
         .map_err(|e| format!("編集 API エラー: {e:?}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn values_and_points() {
+        // 移動の無い値・トラックバーでない値はいつでも書ける
+        assert!(values_fit_points("100.00", 4));
+        assert!(values_fit_points("通常", 4));
+        assert!(values_fit_points("0.00,50.00,100.00,直線移動,0", 3));
+        assert!(!values_fit_points("0.00,50.00,100.00,直線移動,0", 4));
+        assert!(!values_fit_points("0.00,100.00,直線移動,0", 3));
+        // 中間点無視と再生範囲は値 2 つ
+        assert!(values_fit_points("0.00,100.00,直線移動,4", 5));
+        assert!(values_fit_points("0.00,100.00,直線移動,6|", 5));
+        assert!(values_fit_points("0.00,100.00,再生範囲,0", 3));
+        // 設定の中のカンマ
+        assert!(values_fit_points("0.00,100.00,プローブ移動_H,0|9,0,1", 2));
+    }
 }
