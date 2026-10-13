@@ -8,14 +8,15 @@
 //!   「戻す」を押したときの書き込み（`call_edit_section`）だけ（`live.rs`）
 //! - 項目の履歴と効果の棚卸しは裏のスレッドで作る。スレッドはプラグインの `Drop` で止めて終わりを待つ（`worker.rs`）
 
-mod aup2;
+pub mod aup2;
 mod backups;
 mod dialog;
-mod diff;
+pub mod diff;
+mod host_fonts;
 mod gui;
 mod history;
 mod inventory;
-mod live;
+pub mod live;
 mod worker;
 
 use std::path::PathBuf;
@@ -47,10 +48,38 @@ fn init_logging() {
         .try_init();
 }
 
+/// 初期化にかかった時間をログに 1 行出す（強化デバッグ。仕様 `AI/specifications/20261012_CurveEditor_H_キーフレーム速度_spec.md` の 7.0）。
+/// `register` の始めに作り、`register` を抜けるとき（途中の `return` も含む）に new と register の時間を出す
+struct InitTimeLog {
+    new_time: std::time::Duration,
+    register_start: std::time::Instant,
+}
+
+impl InitTimeLog {
+    fn start(new_time: std::time::Duration) -> Self {
+        Self { new_time, register_start: std::time::Instant::now() }
+    }
+}
+
+impl Drop for InitTimeLog {
+    fn drop(&mut self) {
+        let register = self.register_start.elapsed();
+        let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+        aviutl2::tracing::info!(
+            "BackupDiff_H: 初期化 {:.1} ms（new {:.1} ms・register {:.1} ms）",
+            ms(self.new_time + register),
+            ms(self.new_time),
+            ms(register)
+        );
+    }
+}
+
 #[aviutl2::plugin(GenericPlugin)]
 pub struct BackupDiffPlugin {
     window: Mutex<Option<aviutl2_eframe::EframeWindow>>,
     shared: SharedState,
+    /// `new` にかかった時間（初期化の時間をログに出すため。`InitTimeLog`）
+    init_new_time: std::time::Duration,
 }
 
 impl BackupDiffPlugin {
@@ -65,9 +94,10 @@ impl BackupDiffPlugin {
 
 impl aviutl2::generic::GenericPlugin for BackupDiffPlugin {
     fn new(_info: aviutl2::AviUtl2Info) -> AnyResult<Self> {
+        let init_t0 = std::time::Instant::now();
         init_logging();
         tracing::info!("BackupDiff_H v{} 初期化", env!("CARGO_PKG_VERSION"));
-        Ok(Self { window: Mutex::new(None), shared: Arc::new(RwLock::new(Shared::default())) })
+        Ok(Self { window: Mutex::new(None), shared: Arc::new(RwLock::new(Shared::default())), init_new_time: init_t0.elapsed() })
     }
 
     fn plugin_info(&self) -> aviutl2::generic::GenericPluginTable {
@@ -78,6 +108,8 @@ impl aviutl2::generic::GenericPlugin for BackupDiffPlugin {
     }
 
     fn register(&mut self, registry: &mut aviutl2::generic::HostAppHandle) {
+        // 抜けるときに初期化の時間をログに出す（`InitTimeLog`）
+        let _init_time = InitTimeLog::start(self.init_new_time);
         live::EDIT_HANDLE.init(registry.create_edit_handle());
         let backup_dir = aviutl2::config::app_data_path().join("Backup");
         let shared = Arc::clone(&self.shared);

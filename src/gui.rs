@@ -68,6 +68,8 @@ struct EffectPlace<'a> {
 
 pub struct BackupDiffApp {
     _handle: AviUtl2EframeHandle,
+    /// 本体のフォント（窓が見えてから読む。`host_fonts`）
+    host_fonts: crate::host_fonts::LazyFonts,
     shared: SharedState,
     backup_dir: PathBuf,
     catalog: Catalog,
@@ -183,10 +185,12 @@ impl BackupDiffApp {
         cc.egui_ctx.all_styles_mut(|style| {
             style.visuals = aviutl2_eframe::aviutl2_visuals();
         });
-        cc.egui_ctx.set_fonts(aviutl2_eframe::aviutl2_fonts());
+        // 本体のフォントは窓が見えてから ui で読む（ここで読むと、本体の起動がこの窓の初期化を待つ間ずっと止まる。`host_fonts`）
+        let host_fonts = crate::host_fonts::LazyFonts::new(&handle);
         shared.write().egui_ctx = Some(cc.egui_ctx.clone());
         Self {
             _handle: handle,
+            host_fonts,
             shared,
             backup_dir,
             catalog: Catalog::default(),
@@ -981,6 +985,10 @@ fn stage_hint(o: &ObjectDiff) -> &'static str {
 
 impl eframe::App for BackupDiffApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // 本体のフォントは窓が見えてから読む。読んだフレームは描かない（新しいフォントは次のフレームから効く。次のフレームは頼んである）
+        if self.host_fonts.load_if_visible(ui.ctx()) {
+            return;
+        }
         // 初回と、プロジェクトを開き直したときに一覧を読み直す
         let project = self.project_path();
         if !self.scanned || self.last_project.as_ref() != Some(&project) {

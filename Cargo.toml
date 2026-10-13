@@ -1,6 +1,6 @@
 [package]
 name = "backup-diff-h"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 license = "MIT"
 authors = ["HexBrowns"]
@@ -9,7 +9,7 @@ publish = false
 
 [lib]
 name = "backup_diff_h"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]  # rlib は tests/ の偽の本体のテストから呼ぶため
 
 [dependencies]
 anyhow = "1.0"
@@ -19,8 +19,12 @@ parking_lot = "0.12"
 tracing = "0.1"
 windows = { version = "0.62", features = [
     "Win32_Foundation",
+    "Win32_Graphics_DirectWrite",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
     "Win32_System_Com",
     "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
     "Win32_System_Time",
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
